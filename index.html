@@ -162,13 +162,13 @@
         <!-- 2D Cut Swipe Line Canvas (z-20) -->
         <canvas id="swipe-canvas" class="w-full h-full absolute inset-0 z-20 pointer-events-auto"></canvas>
 
-        <!-- 2D Memo Canvas (手書きペン用 z-30) -->
-        <canvas id="memo-canvas" class="w-full h-full absolute inset-0 z-30 pointer-events-none cursor-crosshair touch-none"></canvas>
-
-        <!-- 2D SVG Interactive Text Layer (図形の最前面に配置 z-40) -->
-        <svg id="canvas-svg" class="w-full h-full absolute inset-0 touch-none select-none z-40 pointer-events-none" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet">
+        <!-- 2D SVG Interactive Text Layer (図形の最前面に配置 z-30) -->
+        <svg id="canvas-svg" class="w-full h-full absolute inset-0 touch-none select-none z-30 pointer-events-none" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet">
             <g id="text-layer" class="pointer-events-auto"></g>
         </svg>
+
+        <!-- 2D Memo Canvas (手書きペン用 z-40) -->
+        <canvas id="memo-canvas" class="w-full h-full absolute inset-0 z-40 pointer-events-none cursor-crosshair touch-none"></canvas>
 
         <!-- インラインテキストエディタ（PCで書くモード用 z-50） -->
         <textarea id="text-editor" 
@@ -201,6 +201,15 @@
             textElements: [],
             editingTextId: null
         };
+
+        let isSwiping = false;
+        let swipeStart = { x: 0, y: 0 };
+        let swipeCurrent = { x: 0, y: 0 };
+        let swipePoints = [];
+        let lastPointerPos = { x: 0, y: 0 };
+        let isCutGesture = false;
+        let isRotatingObject = false;
+        let isDraggingMesh = false;
 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -1383,21 +1392,6 @@
         }
 
         window.onload = function () {
-            // 長押しによるコンテキストメニュー表示を防止
-            document.addEventListener('contextmenu', function (e) {
-                e.preventDefault();
-            }, { passive: false });
-
-            // ダブルタップによる拡大・コンテキストメニュー動作を防止
-            let lastTouchEnd = 0;
-            document.addEventListener('touchend', function (e) {
-                const now = Date.now();
-                if (now - lastTouchEnd <= 300) {
-                    if (e.cancelable) e.preventDefault();
-                }
-                lastTouchEnd = now;
-            }, { passive: false });
-
             initThree();
             initSwipeCanvas();
             initMemoCanvas();
