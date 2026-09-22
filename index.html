@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>L字型の立体の体積</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- html2canvas for Screenshot Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Three.js & CSS2DRenderer -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap');
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Zen Maru Gothic', sans-serif;
+            background-color: #f8fafc;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            overscroll-behavior: none;
+        }
+
+        .btn-action {
+            transition: transform 0.15s ease-out, background-color 0.15s ease, box-shadow 0.15s ease;
+            touch-action: manipulation;
+        }
+        .btn-action:active {
+            transform: scale(0.94);
+        }
+
+        /* ノートのマス目背景（44px） */
+        .notebook-bg {
+            background-color: #ffffff;
+            background-image: 
+                linear-gradient(to right, rgba(203, 213, 225, 0.5) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(203, 213, 225, 0.5) 1px, transparent 1px);
+            background-size: 44px 44px;
+        }
+
+        /* 辺の長さラベル（3D CSS2D Overlay） */
+        .edge-label {
+            background-color: rgba(30, 41, 59, 0.92);
+            color: #ffffff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 900;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            border: 2px solid #ffffff;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            white-space: nowrap;
+        }
+        .edge-label.hidden-label {
+            opacity: 0 !important;
+            transform: scale(0.6);
+            pointer-events: none !important;
+        }
+
+        /* 可動テキストスタイル */
+        .draggable-text {
+            cursor: move;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+        .draggable-text:active {
+            cursor: grabbing;
+        }
+
+        /* インラインテキストエディタ（PCで書くモード用） */
+        #text-editor {
+            font-family: 'Zen Maru Gothic', sans-serif;
+            box-sizing: border-box;
+            text-align: left;
+            white-space: pre;
+            word-break: normal;
+            overflow: hidden;
+        }
+
+        canvas, svg {
+            touch-action: none;
+            -webkit-touch-callout: none;
+            display: block;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-slate-100 relative select-none touch-none">
+
+    <!-- 全画面共通コントロールツールバー -->
+    <header class="absolute top-3 left-3 right-3 z-50 flex items-center justify-between gap-2 bg-white/95 backdrop-blur-md p-2 px-4 rounded-2xl shadow-xl border border-slate-200 pointer-events-auto overflow-x-auto whitespace-nowrap touch-none">
+        <!-- 左側：基本ツール -->
+        <div class="flex items-center gap-2 shrink-0">
+            <button id="btn-screenshot" title="スクリーンショット保存" class="h-9 px-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center btn-action shrink-0">
+                <i class="fa-solid fa-camera"></i>
+            </button>
+            <button id="btn-undo" title="1つ前の状態に戻す" class="h-9 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-1.5 btn-action shrink-0">
+                <i class="fa-solid fa-rotate-left"></i> <span>1つもどす</span>
+            </button>
+            <button id="btn-reset" title="最初からやり直す" class="h-9 px-3 bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-1.5 btn-action shrink-0">
+                <i class="fa-solid fa-power-off"></i> <span>初めから</span>
+            </button>
+        </div>
+
+        <div class="h-5 w-px bg-slate-300 mx-1 shrink-0"></div>
+
+        <!-- 右側：モード切替＋補助ツール -->
+        <div class="flex items-center gap-2 shrink-0">
+            <button id="btn-separate" title="分割パーツの位置をリセット" class="hidden h-9 px-3 rounded-xl font-bold text-sm bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition flex items-center gap-1.5 btn-action shrink-0">
+                <i class="fa-solid fa-arrows-to-dot"></i> <span>位置をリセット</span>
+            </button>
+            <button id="btn-toggle-labels" title="辺の長さを表示" class="h-9 px-3 rounded-xl font-bold text-sm bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm transition flex items-center gap-1.5 btn-action shrink-0">
+                <i id="icon-toggle-labels" class="fa-solid fa-ruler text-emerald-600"></i> <span id="label-btn-text">長さ表示：OFF</span>
+            </button>
+
+            <!-- 主要モードボタン -->
+            <button id="btn-mode-cut" class="h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 bg-blue-600 text-white shadow-sm btn-action shrink-0">
+                <i class="fa-solid fa-scissors"></i> <span>切る</span>
+            </button>
+            <button id="btn-mode-select" class="h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm btn-action shrink-0">
+                <i class="fa-solid fa-hand"></i> <span>動かす</span>
+            </button>
+            <button id="btn-mode-text" class="h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm btn-action shrink-0">
+                <i class="fa-solid fa-keyboard"></i> <span>PCで書く</span>
+            </button>
+            <button id="btn-mode-pen" class="h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm btn-action shrink-0">
+                <i class="fa-solid fa-pen"></i> <span>ペンで書く</span>
+            </button>
+
+            <!-- ペンツールカラー＆消しゴム -->
+            <div id="pen-controls" class="flex items-center gap-1.5 ml-1 shrink-0">
+                <button id="pen-black" title="黒ペン" class="pen-btn w-7 h-7 rounded-full bg-slate-800 hover:scale-105 transition shrink-0 border-2 border-white ring-2 ring-slate-800"></button>
+                <button id="pen-red" title="赤ペン" class="pen-btn w-7 h-7 rounded-full bg-rose-500 hover:scale-105 transition shrink-0 border-2 border-white ring-2 ring-transparent"></button>
+                <button id="pen-blue" title="青ペン" class="pen-btn w-7 h-7 rounded-full bg-blue-500 hover:scale-105 transition shrink-0 border-2 border-white ring-2 ring-transparent"></button>
+                <button id="pen-eraser" title="消しゴム" class="h-8 px-2.5 bg-white hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition flex items-center gap-1 border border-slate-300 shrink-0">
+                    <i class="fa-solid fa-eraser"></i>
+                </button>
+                <button id="btn-clear-memo" title="メモを全消去" class="h-8 px-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm transition flex items-center gap-1 btn-action shrink-0">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 全画面メインエリア -->
+    <main id="capture-area" class="w-full h-full relative overflow-hidden notebook-bg touch-none">
+        <!-- 3D Viewport Area (z-10) -->
+        <div id="three-container" class="w-full h-full absolute inset-0 z-10 cursor-grab active:cursor-grabbing"></div>
+
+        <!-- 2D Cut Swipe Line Canvas (z-20) -->
+        <canvas id="swipe-canvas" class="w-full h-full absolute inset-0 z-20 pointer-events-auto"></canvas>
+
+        <!-- 2D Memo Canvas (手書きペン用 z-30) -->
+        <canvas id="memo-canvas" class="w-full h-full absolute inset-0 z-30 pointer-events-none cursor-crosshair touch-none"></canvas>
+
+        <!-- 2D SVG Interactive Text Layer (図形の最前面に配置 z-40) -->
+        <svg id="canvas-svg" class="w-full h-full absolute inset-0 touch-none select-none z-40 pointer-events-none" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet">
+            <g id="text-layer" class="pointer-events-auto"></g>
+        </svg>
+
+        <!-- インラインテキストエディタ（PCで書くモード用 z-50） -->
+        <textarea id="text-editor" 
+            class="absolute hidden z-50 bg-white border-2 border-blue-500 rounded-xl outline-none font-bold text-slate-900 shadow-2xl transition-none resize-none overflow-hidden p-2 text-left" 
+            style="font-family: 'Zen Maru Gothic', sans-serif; box-sizing: border-box; text-align: left;"></textarea>
+    </main>
+
+    <script>
+        const SCALE = 1.2;
+        const SOLID_COLOR = 0xFBCACD;
+        const COMPLEMENT_COLOR = 0xf43f5e;
+        const INIT_ROT_X = 0;
+        const INIT_ROT_Y = 0;
+        const GRID_SIZE_PX = 44; // グリッド（マス目）サイズ
+
+        let scene, camera, renderer, cssRenderer;
+        let mainPivot;
+        let partOriginalGroup, partVertA, partVertB, partHorizA, partHorizB, partCompMain, partCompSub;
+        const edgeHandles = [];
+        const edgeLabelsMap = new Map();
+        const visibleLabelIds = new Set();
+
+        const state = {
+            activeMode: 'cut', // cut, select, text, pen
+            activeCutType: 'original', // original, vertical, horizontal, complete
+            isLabelModeActive: false,
+            penColor: '#1e293b',
+            isErasing: false,
+            isDrawingPen: false,
+            textElements: [],
+            editingTextId: null
+        };
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const dragPlane = new THREE.Plane();
+        const dragPlaneIntersection = new THREE.Vector3();
+        const dragOffset = new THREE.Vector3();
+        let selectedPartGroup = null;
+        const historyStack = [];
+
+        function getActiveDraggableGroups() {
+            if (state.activeCutType === 'vertical') {
+                return [partVertA, partVertB];
+            } else if (state.activeCutType === 'horizontal') {
+                return [partHorizA, partHorizB];
+            } else if (state.activeCutType === 'complete') {
+                return [partCompMain, partCompSub];
+            } else if (state.activeCutType === 'original') {
+                return [partOriginalGroup];
+            }
+            return [];
+        }
+
+        function initThree() {
+            const container = document.getElementById('three-container');
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+            camera.position.set(0, 0, 70);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            cssRenderer = new THREE.CSS2DRenderer();
+            cssRenderer.setSize(width, height);
+            cssRenderer.domElement.style.position = 'absolute';
+            cssRenderer.domElement.style.top = '0px';
+            cssRenderer.domElement.style.pointerEvents = 'none';
+            container.appendChild(cssRenderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(20, 40, 50);
+            scene.add(dirLight);
+
+            const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+            dirLight2.position.set(-20, -20, -30);
+            scene.add(dirLight2);
+
+            mainPivot = new THREE.Group();
+            mainPivot.position.set(-23 * SCALE, 3 * SCALE, 0);
+            mainPivot.rotation.set(INIT_ROT_X, INIT_ROT_Y, 0);
+            scene.add(mainPivot);
+
+            buildGeometries();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // 現在の切り方モードでパーツが初期位置から離れているか判定
+        function isAnyPartSeparatedInCurrentMode() {
+            const activeGroups = getActiveDraggableGroups();
+            return activeGroups.some(g => g.position.length() > 0.1);
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer || !cssRenderer) return;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+
+            renderer.setSize(width, height);
+            cssRenderer.setSize(width, height);
+
+            const swipeCanvas = document.getElementById('swipe-canvas');
+            if (swipeCanvas) {
+                swipeCanvas.width = width;
+                swipeCanvas.height = height;
+            }
+
+            const memoCanvas = document.getElementById('memo-canvas');
+            if (memoCanvas) {
+                memoCanvas.width = width;
+                memoCanvas.height = height;
+            }
+        }
+
+        function buildGeometries() {
+            const createBoxMesh = (w, h, d, color = SOLID_COLOR, opacity = 1.0) => {
+                const geom = new THREE.BoxGeometry(w * SCALE, h * SCALE, d * SCALE);
+                const mat = new THREE.MeshPhongMaterial({
+                    color: color,
+                    transparent: opacity < 1.0,
+                    opacity: opacity,
+                    shininess: 40,
+                    side: THREE.DoubleSide
+                });
+                const mesh = new THREE.Mesh(geom, mat);
+
+                const edges = new THREE.EdgesGeometry(geom);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 });
+                const line = new THREE.LineSegments(edges, lineMat);
+                mesh.add(line);
+
+                return mesh;
+            };
+
+            partOriginalGroup = new THREE.Group();
+            partVertA = new THREE.Group();
+            partVertB = new THREE.Group();
+            partHorizA = new THREE.Group();
+            partHorizB = new THREE.Group();
+            partCompMain = new THREE.Group();
+            partCompSub = new THREE.Group();
+
+            const cx = 4 * SCALE;
+            const cy = 7.5 * SCALE;
+            const cz = 5 * SCALE;
+
+            const shape = new THREE.Shape();
+            const w = 8 * SCALE;
+            const h = 15 * SCALE;
+            const d = 10 * SCALE;
+            const cutW = 4 * SCALE;
+            const cutH = 10 * SCALE;
+
+            shape.moveTo(0, 0);
+            shape.lineTo(0, h);
+            shape.lineTo(w - cutW, h);
+            shape.lineTo(w - cutW, h - cutH);
+            shape.lineTo(w, h - cutH);
+            shape.lineTo(w, 0);
+            shape.closePath();
+
+            const extrudeGeom = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: false });
+            extrudeGeom.center();
+
+            const singleMat = new THREE.MeshPhongMaterial({
+                color: SOLID_COLOR,
+                shininess: 40,
+                side: THREE.DoubleSide
+            });
+            const singleLMesh = new THREE.Mesh(extrudeGeom, singleMat);
+            const singleEdges = new THREE.EdgesGeometry(extrudeGeom);
+            const singleLineMat = new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 });
+            const singleLine = new THREE.LineSegments(singleEdges, singleLineMat);
+            singleLMesh.add(singleLine);
+
+            partOriginalGroup.add(singleLMesh);
+
+            const mVA = createBoxMesh(4, 15, 10);
+            mVA.position.set((2 * SCALE) - cx, (7.5 * SCALE) - cy, (5 * SCALE) - cz);
+            partVertA.add(mVA);
+
+            const mVB = createBoxMesh(4, 5, 10);
+            mVB.position.set((6 * SCALE) - cx, (2.5 * SCALE) - cy, (5 * SCALE) - cz);
+            partVertB.add(mVB);
+
+            const mHA = createBoxMesh(4, 10, 10);
+            mHA.position.set((2 * SCALE) - cx, (10 * SCALE) - cy, (5 * SCALE) - cz);
+            partHorizA.add(mHA);
+
+            const mHB = createBoxMesh(8, 5, 10);
+            mHB.position.set((4 * SCALE) - cx, (2.5 * SCALE) - cy, (5 * SCALE) - cz);
+            partHorizB.add(mHB);
+
+            const compLMesh = singleLMesh.clone();
+            partCompMain.add(compLMesh);
+
+            const mCS = createBoxMesh(4, 10, 10, COMPLEMENT_COLOR, 0.45);
+            mCS.position.set((6 * SCALE) - cx, (10 * SCALE) - cy, (5 * SCALE) - cz);
+            partCompSub.add(mCS);
+
+            mainPivot.add(partOriginalGroup);
+            mainPivot.add(partVertA, partVertB);
+            mainPivot.add(partHorizA, partHorizB);
+            mainPivot.add(partCompMain, partCompSub);
+
+            partOriginalGroup.visible = true;
+            partVertA.visible = false;
+            partVertB.visible = false;
+            partHorizA.visible = false;
+            partHorizB.visible = false;
+            partCompMain.visible = false;
+            partCompSub.visible = false;
+
+            createEdgeLabels(cx, cy, cz);
+        }
+
+        function createEdgeLabels(cx, cy, cz) {
+            edgeHandles.length = 0;
+            edgeLabelsMap.clear();
+
+            const addEdge = (id, text, posVec, parentGroup) => {
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'edge-label hidden-label';
+                labelDiv.id = `label-${id}`;
+                labelDiv.innerText = text;
+
+                const cssObj = new THREE.CSS2DObject(labelDiv);
+                cssObj.position.copy(posVec);
+
+                const handleGeom = new THREE.SphereGeometry(1.2 * SCALE, 8, 8);
+                const handleMat = new THREE.MeshBasicMaterial({ visible: false });
+                const handleMesh = new THREE.Mesh(handleGeom, handleMat);
+                handleMesh.position.copy(posVec);
+                handleMesh.userData = { id: id };
+
+                parentGroup.add(cssObj);
+                parentGroup.add(handleMesh);
+                edgeHandles.push(handleMesh);
+                edgeLabelsMap.set(id, labelDiv);
+            };
+
+            addEdge('orig-AB', '15cm', new THREE.Vector3(-cx - 0.4, 0, cz), partOriginalGroup);
+            addEdge('orig-BC', '8cm', new THREE.Vector3(0, -cy - 0.4, cz), partOriginalGroup);
+            addEdge('orig-CD', '5cm', new THREE.Vector3(cx + 0.4, (2.5 * SCALE) - cy, cz), partOriginalGroup);
+            addEdge('orig-DE', '4cm', new THREE.Vector3((2 * SCALE), (5 * SCALE) - cy - 0.4, cz), partOriginalGroup);
+            addEdge('orig-EF', '10cm', new THREE.Vector3(-0.4, (2.5 * SCALE), cz), partOriginalGroup);
+            addEdge('orig-FA', '4cm', new THREE.Vector3((-2 * SCALE), (15 * SCALE) - cy + 0.4, cz), partOriginalGroup);
+            addEdge('orig-CI', '10cm', new THREE.Vector3(cx + 0.4, -cy - 0.4, 0), partOriginalGroup);
+            addEdge('orig-FL', '10cm', new THREE.Vector3(-0.4, (15 * SCALE) - cy + 0.4, 0), partOriginalGroup);
+
+            addEdge('vertA-AB', '15cm', new THREE.Vector3(-cx - 0.4, 0, cz), partVertA);
+            addEdge('vertA-FA', '4cm', new THREE.Vector3((-2 * SCALE), (15 * SCALE) - cy + 0.4, cz), partVertA);
+            addEdge('vertA-FL', '10cm', new THREE.Vector3(-0.4, (15 * SCALE) - cy + 0.4, 0), partVertA);
+
+            addEdge('vertB-CD', '5cm', new THREE.Vector3(cx + 0.4, (2.5 * SCALE) - cy, cz), partVertB);
+            addEdge('vertB-DE', '4cm', new THREE.Vector3((2 * SCALE), (5 * SCALE) - cy - 0.4, cz), partVertB);
+            addEdge('vertB-CI', '10cm', new THREE.Vector3(cx + 0.4, -cy - 0.4, 0), partVertB);
+
+            addEdge('horizA-FA', '4cm', new THREE.Vector3((-2 * SCALE), (15 * SCALE) - cy + 0.4, cz), partHorizA);
+            addEdge('horizA-EF', '10cm', new THREE.Vector3(-0.4, (2.5 * SCALE), cz), partHorizA);
+            addEdge('horizA-FL', '10cm', new THREE.Vector3(-0.4, (15 * SCALE) - cy + 0.4, 0), partHorizA);
+
+            addEdge('horizB-BC', '8cm', new THREE.Vector3(0, -cy - 0.4, cz), partHorizB);
+            addEdge('horizB-CD', '5cm', new THREE.Vector3(cx + 0.4, (2.5 * SCALE) - cy, cz), partHorizB);
+            addEdge('horizB-CI', '10cm', new THREE.Vector3(cx + 0.4, -cy - 0.4, 0), partHorizB);
+
+            addEdge('compMain-AB', '15cm', new THREE.Vector3(-cx - 0.4, 0, cz), partCompMain);
+            addEdge('compMain-BC', '8cm', new THREE.Vector3(0, -cy - 0.4, cz), partCompMain);
+            addEdge('compMain-CI', '10cm', new THREE.Vector3(cx + 0.4, -cy - 0.4, 0), partCompMain);
+
+            addEdge('compSub-width', '4㎝', new THREE.Vector3((2 * SCALE), (15 * SCALE) - cy + 0.4, cz), partCompSub);
+            addEdge('compSub-height', '10㎝', new THREE.Vector3(cx + 0.4, (10 * SCALE) - cy, cz), partCompSub);
+            addEdge('compSub-depth', '10㎝', new THREE.Vector3(cx + 0.4, (15 * SCALE) - cy + 0.4, 0), partCompSub);
+        }
+
+        function setMode(mode) {
+            if (state.activeMode === 'text' && mode !== 'text') {
+                finishTextEditing();
+            }
+
+            state.activeMode = mode;
+
+            const btnCut = document.getElementById('btn-mode-cut');
+            const btnSelect = document.getElementById('btn-mode-select');
+            const btnText = document.getElementById('btn-mode-text');
+            const btnPen = document.getElementById('btn-mode-pen');
+            const memoCanvas = document.getElementById('memo-canvas');
+            const swipeCanvas = document.getElementById('swipe-canvas');
+
+            btnCut.className = `h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 ${mode === 'cut' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm'} btn-action shrink-0`;
+            btnSelect.className = `h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 ${mode === 'select' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm'} btn-action shrink-0`;
+            btnText.className = `h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 ${mode === 'text' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm'} btn-action shrink-0`;
+            btnPen.className = `h-9 px-3 rounded-xl font-bold text-sm transition flex items-center gap-1.5 ${mode === 'pen' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 shadow-sm'} btn-action shrink-0`;
+
+            if (mode === 'pen') {
+                memoCanvas.style.pointerEvents = 'auto';
+                swipeCanvas.style.pointerEvents = 'none';
+            } else {
+                memoCanvas.style.pointerEvents = 'none';
+                swipeCanvas.style.pointerEvents = 'auto';
+            }
+        }
+
+        function toggleLabelMode() {
+            state.isLabelModeActive = !state.isLabelModeActive;
+            updateLabelButtonUI();
+
+            if (state.isLabelModeActive) {
+                showActiveLabels();
+            } else {
+                hideAllLabels();
+            }
+        }
+
+        function showActiveLabels() {
+            const isCompSubSeparated = partCompSub && partCompSub.position.length() > 0.1;
+
+            edgeLabelsMap.forEach((el, id) => {
+                const handle = edgeHandles.find(h => h.userData.id === id);
+                if (handle && handle.parent && handle.parent.visible) {
+                    if (id.startsWith('compSub-') && !isCompSubSeparated) {
+                        el.classList.add('hidden-label');
+                    } else {
+                        el.classList.remove('hidden-label');
+                        visibleLabelIds.add(id);
+                    }
+                } else {
+                    el.classList.add('hidden-label');
+                }
+            });
+        }
+
+        function toggleSingleLabel(id) {
+            if (!state.isLabelModeActive) return;
+            const el = edgeLabelsMap.get(id);
+            if (!el) return;
+
+            if (visibleLabelIds.has(id)) {
+                visibleLabelIds.delete(id);
+                el.classList.add('hidden-label');
+            } else {
+                visibleLabelIds.add(id);
+                el.classList.remove('hidden-label');
+            }
+        }
+
+        function hideAllLabels() {
+            visibleLabelIds.clear();
+            edgeLabelsMap.forEach(el => el.classList.add('hidden-label'));
+        }
+
+        function updateLabelButtonUI() {
+            const btn = document.getElementById('btn-toggle-labels');
+            const btnText = document.getElementById('label-btn-text');
+            const icon = document.getElementById('icon-toggle-labels');
+            if (state.isLabelModeActive) {
+                btnText.innerText = '長さ表示：ON';
+                btn.className = "h-9 px-3 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 shadow-sm transition flex items-center gap-1.5 btn-action shrink-0";
+                if (icon) icon.className = "fa-solid fa-ruler text-white";
+            } else {
+                btnText.innerText = '長さ表示：OFF';
+                btn.className = "h-9 px-3 rounded-xl font-bold text-sm bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-sm transition flex items-center gap-1.5 btn-action shrink-0";
+                if (icon) icon.className = "fa-solid fa-ruler text-emerald-600";
+            }
+        }
+
+        function initSwipeCanvas() {
+            const canvas = document.getElementById('swipe-canvas');
+            if (!canvas) return;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            canvas.addEventListener('pointerdown', handlePointerDown);
+            canvas.addEventListener('pointermove', handlePointerMove);
+            canvas.addEventListener('pointerup', handlePointerUp);
+            canvas.addEventListener('pointercancel', handlePointerUp);
+        }
+
+        function drawDashedSwipeLine() {
+            const canvas = document.getElementById('swipe-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!isSwiping || state.activeMode !== 'cut' || swipePoints.length < 2) return;
+
+            ctx.beginPath();
+            ctx.setLineDash([8, 6]);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#ef4444';
+
+            ctx.moveTo(swipePoints[0].x, swipePoints[0].y);
+            for (let i = 1; i < swipePoints.length; i++) {
+                ctx.lineTo(swipePoints[i].x, swipePoints[i].y);
+            }
+
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function getScreenPos(v3, group) {
+            const worldVec = v3.clone();
+            if (group) group.localToWorld(worldVec);
+            worldVec.project(camera);
+            const x = (worldVec.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-worldVec.y * 0.5 + 0.5) * window.innerHeight;
+            return new THREE.Vector2(x, y);
+        }
+
+        function distToSegment(p, a, b) {
+            const l2 = a.distanceToSquared(b);
+            if (l2 === 0) return p.distanceTo(a);
+            let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            const proj = new THREE.Vector2(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y));
+            return p.distanceTo(proj);
+        }
+
+        function handlePointerDown(e) {
+            if (state.activeMode === 'pen') return;
+
+            if (state.activeMode === 'text') {
+                handleTextModeClick(e);
+                return;
+            }
+
+            const pointerPos = { x: e.clientX, y: e.clientY };
+            lastPointerPos = pointerPos;
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            if (state.isLabelModeActive) {
+                const activeHandles = edgeHandles.filter(mesh => mesh.parent && mesh.parent.visible);
+                const intersects = raycaster.intersectObjects(activeHandles);
+                if (intersects.length > 0) {
+                    const hitId = intersects[0].object.userData.id;
+                    toggleSingleLabel(hitId);
+                }
+            }
+
+            isSwiping = true;
+            swipeStart = pointerPos;
+            swipeCurrent = pointerPos;
+            swipePoints = [pointerPos];
+
+            const activeGroups = getActiveDraggableGroups();
+
+            if (state.activeMode === 'cut') {
+                isCutGesture = true;
+                isRotatingObject = false;
+                isDraggingMesh = false;
+            } else if (state.activeMode === 'select') {
+                isCutGesture = false;
+
+                let hitGroup = null;
+                if (activeGroups.length > 0) {
+                    const meshesToTest = [];
+                    activeGroups.forEach(g => {
+                        g.traverse(child => {
+                            if (child.isMesh && child.material.visible !== false) {
+                                meshesToTest.push(child);
+                            }
+                        });
+                    });
+
+                    const hitMeshes = raycaster.intersectObjects(meshesToTest);
+                    if (hitMeshes.length > 0) {
+                        let curr = hitMeshes[0].object;
+                        while (curr && !activeGroups.includes(curr)) {
+                            curr = curr.parent;
+                        }
+                        if (curr) hitGroup = curr;
+                    }
+                }
+
+                if (hitGroup) {
+                    selectedPartGroup = hitGroup;
+                    isDraggingMesh = true;
+                    isRotatingObject = false;
+                    saveStateToHistory();
+
+                    const camDir = new THREE.Vector3();
+                    camera.getWorldDirection(camDir);
+                    dragPlane.setFromNormalAndCoplanarPoint(
+                        camDir.clone().negate(),
+                        hitGroup.localToWorld(new THREE.Vector3(0, 0, 0))
+                    );
+
+                    if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
+                        const worldPos = new THREE.Vector3();
+                        hitGroup.getWorldPosition(worldPos);
+                        dragOffset.subVectors(worldPos, dragPlaneIntersection);
+                    }
+                } else {
+                    isDraggingMesh = false;
+                    isRotatingObject = true;
+                }
+            }
+        }
+
+        function handlePointerMove(e) {
+            if (!isSwiping || state.activeMode === 'pen' || state.activeMode === 'text') return;
+            const pointerPos = { x: e.clientX, y: e.clientY };
+            swipeCurrent = pointerPos;
+            swipePoints.push(pointerPos);
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const deltaX = e.clientX - lastPointerPos.x;
+            const deltaY = e.clientY - lastPointerPos.y;
+
+            if (isDraggingMesh && selectedPartGroup) {
+                if (raycaster.ray.intersectPlane(dragPlane, dragPlaneIntersection)) {
+                    const newWorldPos = dragPlaneIntersection.clone().add(dragOffset);
+                    mainPivot.worldToLocal(newWorldPos);
+                    selectedPartGroup.position.copy(newWorldPos);
+                }
+                if (state.isLabelModeActive) {
+                    showActiveLabels();
+                }
+                lastPointerPos = { x: e.clientX, y: e.clientY };
+                return;
+            }
+
+            if (isRotatingObject) {
+                // くっついている時は合わさった状態で回転(mainPivot)、離れている時のみ選択パーツを別々に回転
+                let targetObj = mainPivot;
+                if (isAnyPartSeparatedInCurrentMode() && selectedPartGroup) {
+                    targetObj = selectedPartGroup;
+                }
+
+                targetObj.rotation.y += deltaX * 0.009;
+                targetObj.rotation.x += deltaY * 0.009;
+
+                if (state.isLabelModeActive) {
+                    showActiveLabels();
+                }
+
+                lastPointerPos = { x: e.clientX, y: e.clientY };
+                return;
+            }
+
+            if (isCutGesture) {
+                drawDashedSwipeLine();
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (!isSwiping || state.activeMode === 'pen' || state.activeMode === 'text') return;
+            isSwiping = false;
+
+            const canvas = document.getElementById('swipe-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (isCutGesture) {
+                const dx = swipeCurrent.x - swipeStart.x;
+                const dy = swipeCurrent.y - swipeStart.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist > 20) {
+                    const cx = 4 * SCALE;
+                    const cy = 7.5 * SCALE;
+                    const cz = 5 * SCALE;
+
+                    const vTopInner = getScreenPos(new THREE.Vector3((4 * SCALE) - cx, (15 * SCALE) - cy, cz), mainPivot);
+                    const vBotInner = getScreenPos(new THREE.Vector3((4 * SCALE) - cx, (0 * SCALE) - cy, cz), mainPivot);
+
+                    const hLeftScreen = getScreenPos(new THREE.Vector3((0 * SCALE) - cx, (5 * SCALE) - cy, cz), mainPivot);
+                    const hRightScreen = getScreenPos(new THREE.Vector3((8 * SCALE) - cx, (5 * SCALE) - cy, cz), mainPivot);
+
+                    const cTopLeft = getScreenPos(new THREE.Vector3((4 * SCALE) - cx, (15 * SCALE) - cy, cz), mainPivot);
+                    const cTopRightOuter = getScreenPos(new THREE.Vector3((8 * SCALE) - cx, (15 * SCALE) - cy, cz), mainPivot);
+                    const cBotRight = getScreenPos(new THREE.Vector3((8 * SCALE) - cx, (5 * SCALE) - cy, cz), mainPivot);
+
+                    const TOLERANCE = 40;
+
+                    let minVertDist = Infinity;
+                    let minHorizDist = Infinity;
+                    let minDistCompLine1 = Infinity;
+                    let minDistCompLine2 = Infinity;
+
+                    for (let p of swipePoints) {
+                        const pVec = new THREE.Vector2(p.x, p.y);
+                        minVertDist = Math.min(minVertDist, distToSegment(pVec, vTopInner, vBotInner));
+                        minHorizDist = Math.min(minHorizDist, distToSegment(pVec, hLeftScreen, hRightScreen));
+                        
+                        minDistCompLine1 = Math.min(minDistCompLine1, distToSegment(pVec, cTopLeft, cTopRightOuter));
+                        minDistCompLine2 = Math.min(minDistCompLine2, distToSegment(pVec, cTopRightOuter, cBotRight));
+                    }
+
+                    let matchedCut = null;
+
+                    if (minDistCompLine1 <= TOLERANCE && minDistCompLine2 <= TOLERANCE) {
+                        matchedCut = 'complete';
+                    } else if (minVertDist <= TOLERANCE && Math.abs(dy) > Math.abs(dx) * 0.4) {
+                        matchedCut = 'vertical';
+                    } else if (minHorizDist <= TOLERANCE && Math.abs(dx) > Math.abs(dy) * 0.4) {
+                        matchedCut = 'horizontal';
+                    }
+
+                    if (matchedCut) {
+                        saveStateToHistory();
+                        performCut(matchedCut);
+                        setMode('select');
+                    }
+                }
+            }
+
+            isDraggingMesh = false;
+            isRotatingObject = false;
+        }
+
+        function performCut(type) {
+            state.activeCutType = type;
+            selectedPartGroup = null;
+
+            partOriginalGroup.visible = false;
+            partVertA.visible = false;
+            partVertB.visible = false;
+            partHorizA.visible = false;
+            partHorizB.visible = false;
+            partCompMain.visible = false;
+            partCompSub.visible = false;
+
+            document.getElementById('btn-separate').classList.remove('hidden');
+
+            if (type === 'vertical') {
+                partVertA.visible = true;
+                partVertB.visible = true;
+            } else if (type === 'horizontal') {
+                partHorizA.visible = true;
+                partHorizB.visible = true;
+            } else if (type === 'complete') {
+                partCompMain.visible = true;
+                partCompSub.visible = true;
+            }
+
+            if (state.isLabelModeActive) {
+                showActiveLabels();
+            } else {
+                hideAllLabels();
+            }
+        }
+
+        function resetPositions() {
+            saveStateToHistory();
+            const activeGroups = getActiveDraggableGroups();
+            activeGroups.forEach(g => {
+                g.position.set(0, 0, 0);
+                g.rotation.set(0, 0, 0);
+            });
+            selectedPartGroup = null;
+
+            if (state.isLabelModeActive) {
+                showActiveLabels();
+            } else {
+                hideAllLabels();
+            }
+        }
+
+        const textLayer = document.getElementById('text-layer');
+        const textEditor = document.getElementById('text-editor');
+        const svg = document.getElementById('canvas-svg');
+
+        // SVG座標を取得する関数
+        function getSvgCoords(e) {
+            const pt = svg.createSVGPoint();
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+            
+            if ((clientX === undefined || clientX === null) && e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX; 
+                clientY = e.touches[0].clientY;
+            } else if ((clientX === undefined || clientX === null) && e.changedTouches && e.changedTouches.length > 0) {
+                clientX = e.changedTouches[0].clientX; 
+                clientY = e.changedTouches[0].clientY;
+            }
+            pt.x = (clientX !== undefined && clientX !== null) ? clientX : 0;
+            pt.y = (clientY !== undefined && clientY !== null) ? clientY : 0;
+            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+            return { x: svgP.x, y: svgP.y };
+        }
+
+        // 文字列の全角・半角に応じた見かけの文字数を計算
+        function getTextWidthUnits(text) {
+            let width = 0;
+            const str = text || '';
+            for (let i = 0; i < str.length; i++) {
+                const code = str.charCodeAt(i);
+                if ((code >= 0x0000 && code <= 0x007f) || (code >= 0xff61 && code <= 0xff9f)) {
+                    width += 0.6; // 半角文字
+                } else {
+                    width += 1.05; // 全角文字
+                }
+            }
+            return Math.max(width, 1);
+        }
+
+        // 3D立体の上に重ねられているかRaycast判定
+        function checkIsOver3DObject(screenX, screenY) {
+            if (!camera || !scene) return false;
+
+            const mouseVec = new THREE.Vector2();
+            mouseVec.x = (screenX / window.innerWidth) * 2 - 1;
+            mouseVec.y = -(screenY / window.innerHeight) * 2 + 1;
+
+            const ray = new THREE.Raycaster();
+            ray.setFromCamera(mouseVec, camera);
+
+            const visibleMeshes = [];
+            if (mainPivot) {
+                mainPivot.traverse((child) => {
+                    if (child.isMesh && child.visible && child.parent && child.parent.visible) {
+                        visibleMeshes.push(child);
+                    }
+                });
+            }
+
+            const intersects = ray.intersectObjects(visibleMeshes, true);
+            return intersects.length > 0;
+        }
+
+        // テキストのマス目スナップ (図形外なら格子点スナップ、図形上なら自由配置)
+        function snapTextPosition(textObj) {
+            if (!svg) return;
+
+            const pt = svg.createSVGPoint();
+            pt.x = textObj.x;
+            pt.y = textObj.y;
+            const ctm = svg.getScreenCTM();
+            if (!ctm) return;
+
+            const screenPt = pt.matrixTransform(ctm);
+            const isOverShape = checkIsOver3DObject(screenPt.x, screenPt.y);
+
+            if (!isOverShape) {
+                // 図形から外れている場合は、一番近い44pxマス目の格子点に吸着（スナップ）
+                const snappedScreenX = Math.round(screenPt.x / GRID_SIZE_PX) * GRID_SIZE_PX;
+                const snappedScreenY = Math.round(screenPt.y / GRID_SIZE_PX) * GRID_SIZE_PX;
+
+                const invPt = svg.createSVGPoint();
+                invPt.x = snappedScreenX;
+                invPt.y = snappedScreenY;
+                const snappedSvgPt = invPt.matrixTransform(ctm.inverse());
+
+                textObj.x = snappedSvgPt.x;
+                textObj.y = snappedSvgPt.y;
+            }
+        }
+
+        // テキスト入力欄の位置設定
+        function positionTextEditor(svgX, svgY) {
+            const pt = svg.createSVGPoint();
+            pt.x = svgX;
+            pt.y = svgY;
+            const matrix = svg.getScreenCTM();
+            if (!matrix) return;
+
+            const screenPt = pt.matrixTransform(matrix);
+            const container = document.getElementById('capture-area');
+            const rect = container.getBoundingClientRect();
+
+            const scale = matrix.a;
+            const FONT_SIZE = 32;
+            const LINE_HEIGHT = 42;
+
+            textEditor.style.fontSize = `${FONT_SIZE * scale}px`;
+            textEditor.style.lineHeight = `${LINE_HEIGHT * scale}px`;
+            textEditor.style.textAlign = 'left';
+            
+            autoResizeTextEditor(scale, screenPt.x - rect.left, screenPt.y - rect.top);
+        }
+
+        // 入力欄の自動リサイズ
+        function autoResizeTextEditor(customScale, leftX, topY) {
+            const matrix = svg.getScreenCTM();
+            const scale = customScale || (matrix ? matrix.a : 1);
+            const lines = textEditor.value.split('\n');
+            let maxUnits = 1;
+            lines.forEach(l => {
+                const u = getTextWidthUnits(l);
+                if (u > maxUnits) maxUnits = u;
+            });
+            
+            const FONT_SIZE = 32;
+            const LINE_HEIGHT = 42;
+            const width = Math.max(60 * scale, (maxUnits * FONT_SIZE + 28) * scale);
+            const height = Math.max(50 * scale, (lines.length * LINE_HEIGHT + 20) * scale);
+            
+            textEditor.style.width = `${width}px`;
+            textEditor.style.height = `${height}px`;
+
+            if (leftX !== undefined && topY !== undefined) {
+                textEditor.dataset.leftX = leftX;
+                textEditor.dataset.topY = topY;
+            }
+
+            const lX = parseFloat(textEditor.dataset.leftX || leftX || 0);
+            const tY = parseFloat(textEditor.dataset.topY || topY || 0);
+
+            textEditor.style.left = `${lX}px`;
+            textEditor.style.top = `${tY}px`;
+        }
+
+        // テキスト編集開始
+        function startTextEditing(textObj) {
+            if (state.editingTextId && state.editingTextId !== textObj.id) {
+                finishTextEditing();
+            }
+
+            state.editingTextId = textObj.id;
+            textEditor.value = textObj.text || '';
+            positionTextEditor(textObj.x, textObj.y);
+            textEditor.classList.remove('hidden');
+            renderTextLayer();
+
+            setTimeout(() => {
+                textEditor.focus();
+                textEditor.setSelectionRange(textEditor.value.length, textEditor.value.length);
+            }, 50);
+        }
+
+        // テキスト編集完了
+        function finishTextEditing() {
+            if (!state.editingTextId) return;
+
+            const textObj = state.textElements.find(t => t.id === state.editingTextId);
+            const val = textEditor.value.trim();
+
+            if (textObj) {
+                if (val === '') {
+                    state.textElements = state.textElements.filter(t => t.id !== state.editingTextId);
+                } else {
+                    saveStateToHistory();
+                    textObj.text = textEditor.value;
+                    snapTextPosition(textObj); // 確定時のスナップ判定
+                }
+            }
+
+            state.editingTextId = null;
+            textEditor.classList.add('hidden');
+            textEditor.value = '';
+            renderTextLayer();
+        }
+
+        textEditor.addEventListener('input', () => autoResizeTextEditor());
+        textEditor.addEventListener('compositionupdate', () => autoResizeTextEditor());
+        textEditor.addEventListener('compositionend', () => autoResizeTextEditor());
+        textEditor.addEventListener('blur', () => finishTextEditing());
+        textEditor.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') finishTextEditing();
+        });
+
+        // テキスト描画 (透過背景・枠線なしで高精細描画)
+        function renderTextLayer() {
+            textLayer.innerHTML = '';
+            const FONT_SIZE = 32;
+            const LINE_HEIGHT = 42;
+            const PADDING_X = 12;
+            const PADDING_Y = 8;
+
+            state.textElements.forEach((item) => {
+                if (item.id === state.editingTextId) return;
+
+                const textGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                textGroup.setAttribute('class', 'draggable-text');
+                textGroup.setAttribute('data-id', item.id);
+
+                const lines = (item.text || '').split('\n');
+                let maxUnits = 1;
+                lines.forEach(l => {
+                    const u = getTextWidthUnits(l);
+                    if (u > maxUnits) maxUnits = u;
+                });
+
+                const boxWidth = Math.max(50, maxUnits * FONT_SIZE + (PADDING_X * 2));
+                const boxHeight = Math.max(42, lines.length * LINE_HEIGHT + (PADDING_Y * 2));
+
+                // 透明なヒット領域（枠線なし・透過背景でタップ/ドラッグ操作性を保持）
+                const hitRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                hitRect.setAttribute('x', item.x);
+                hitRect.setAttribute('y', item.y);
+                hitRect.setAttribute('width', boxWidth);
+                hitRect.setAttribute('height', boxHeight);
+                hitRect.setAttribute('fill', 'transparent');
+                hitRect.setAttribute('pointer-events', 'all');
+                textGroup.appendChild(hitRect);
+
+                const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textEl.setAttribute('font-size', FONT_SIZE);
+                textEl.setAttribute('font-weight', 'bold');
+                textEl.setAttribute('fill', '#0f172a');
+                textEl.setAttribute('font-family', "'Zen Maru Gothic', sans-serif");
+                textEl.setAttribute('pointer-events', 'none');
+
+                lines.forEach((lineStr, lineIdx) => {
+                    const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                    tspan.setAttribute('x', item.x + PADDING_X);
+                    tspan.setAttribute('y', item.y + (lineIdx * LINE_HEIGHT) + PADDING_Y + 2);
+                    tspan.setAttribute('text-anchor', 'start');
+                    tspan.setAttribute('dominant-baseline', 'hanging');
+                    tspan.textContent = lineStr || ' ';
+                    textEl.appendChild(tspan);
+                });
+
+                textGroup.appendChild(textEl);
+
+                // ドラッグ＆タップ再編集イベント
+                textGroup.addEventListener('pointerdown', (e) => {
+                    // PCで書くモード、または動かすモードの時に操作可能
+                    if (state.activeMode !== 'text' && state.activeMode !== 'select') return;
+
+                    if (e.cancelable) e.preventDefault();
+                    if (e.stopPropagation) e.stopPropagation();
+
+                    const startCoords = getSvgCoords(e);
+                    const initX = item.x;
+                    const initY = item.y;
+                    let isMoved = false;
+
+                    const onPointerMove = (moveEvt) => {
+                        const currentCoords = getSvgCoords(moveEvt);
+                        const dx = currentCoords.x - startCoords.x;
+                        const dy = currentCoords.y - startCoords.y;
+
+                        if (Math.hypot(dx, dy) > 4) isMoved = true;
+
+                        if (isMoved) {
+                            item.x = initX + dx;
+                            item.y = initY + dy;
+
+                            hitRect.setAttribute('x', item.x);
+                            hitRect.setAttribute('y', item.y);
+
+                            textEl.querySelectorAll('tspan').forEach((ts, idx) => {
+                                ts.setAttribute('x', item.x + PADDING_X);
+                                ts.setAttribute('y', item.y + (idx * LINE_HEIGHT) + PADDING_Y + 2);
+                            });
+                        }
+                    };
+
+                    const onPointerUp = () => {
+                        window.removeEventListener('pointermove', onPointerMove);
+                        window.removeEventListener('pointerup', onPointerUp);
+
+                        if (!isMoved) {
+                            // 移動していなければ再編集を開始
+                            setMode('text');
+                            startTextEditing(item);
+                        } else {
+                            // 移動した場合は位置確定とスナップ処理
+                            snapTextPosition(item);
+                            saveStateToHistory();
+                            renderTextLayer();
+                        }
+                    };
+
+                    window.addEventListener('pointermove', onPointerMove);
+                    window.addEventListener('pointerup', onPointerUp);
+                });
+
+                textLayer.appendChild(textGroup);
+            });
+        }
+
+        // キャンバスクリックで新規テキスト生成
+        function handleTextModeClick(e) {
+            if (state.activeMode !== 'text') return;
+
+            if (state.editingTextId) {
+                finishTextEditing();
+                return;
+            }
+
+            const coords = getSvgCoords(e);
+            const newTextObj = {
+                id: `text-${Date.now()}`,
+                x: coords.x,
+                y: coords.y,
+                text: ''
+            };
+
+            state.textElements.push(newTextObj);
+            startTextEditing(newTextObj);
+        }
+
+        function initMemoCanvas() {
+            const canvas = document.getElementById('memo-canvas');
+            if (!canvas) return;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const ctx = canvas.getContext('2d');
+            let lastX = 0;
+            let lastY = 0;
+
+            function getCanvasPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+
+            canvas.addEventListener('pointerdown', (e) => {
+                if (state.activeMode !== 'pen') return;
+                state.isDrawingPen = true;
+                const pos = getCanvasPos(e);
+                lastX = pos.x;
+                lastY = pos.y;
+                saveStateToHistory();
+            });
+
+            canvas.addEventListener('pointermove', (e) => {
+                if (!state.isDrawingPen || state.activeMode !== 'pen') return;
+                const pos = getCanvasPos(e);
+                ctx.beginPath();
+                if (state.isErasing) {
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.arc(pos.x, pos.y, 16, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.strokeStyle = state.penColor;
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.moveTo(lastX, lastY);
+                    ctx.lineTo(pos.x, pos.y);
+                    ctx.stroke();
+                    lastX = pos.x;
+                    lastY = pos.y;
+                }
+            });
+
+            const stopDrawing = () => { state.isDrawingPen = false; };
+            canvas.addEventListener('pointerup', stopDrawing);
+            canvas.addEventListener('pointercancel', stopDrawing);
+        }
+
+        function clearMemo() {
+            const canvas = document.getElementById('memo-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function saveStateToHistory() {
+            const stateSnapshot = {
+                activeCutType: state.activeCutType,
+                pivotRot: { x: mainPivot.rotation.x, y: mainPivot.rotation.y },
+                partPositions: [
+                    partVertA.position.clone(),
+                    partVertB.position.clone(),
+                    partHorizA.position.clone(),
+                    partHorizB.position.clone(),
+                    partCompMain.position.clone(),
+                    partCompSub.position.clone()
+                ],
+                partRotations: [
+                    partVertA.rotation.clone(),
+                    partVertB.rotation.clone(),
+                    partHorizA.rotation.clone(),
+                    partHorizB.rotation.clone(),
+                    partCompMain.rotation.clone(),
+                    partCompSub.rotation.clone()
+                ],
+                textElements: JSON.parse(JSON.stringify(state.textElements))
+            };
+            historyStack.push(stateSnapshot);
+            if (historyStack.length > 20) historyStack.shift();
+        }
+
+        function undoState() {
+            finishTextEditing();
+            if (historyStack.length === 0) return;
+            const prev = historyStack.pop();
+
+            state.activeCutType = prev.activeCutType;
+            state.textElements = prev.textElements || [];
+            mainPivot.rotation.set(prev.pivotRot.x, prev.pivotRot.y, 0);
+
+            const groups = [partVertA, partVertB, partHorizA, partHorizB, partCompMain, partCompSub];
+            groups.forEach((g, idx) => {
+                g.position.copy(prev.partPositions[idx]);
+                g.rotation.copy(prev.partRotations[idx]);
+            });
+
+            partOriginalGroup.visible = (state.activeCutType === 'original');
+            partVertA.visible = (state.activeCutType === 'vertical');
+            partVertB.visible = (state.activeCutType === 'vertical');
+            partHorizA.visible = (state.activeCutType === 'horizontal');
+            partHorizB.visible = (state.activeCutType === 'horizontal');
+            partCompMain.visible = (state.activeCutType === 'complete');
+            partCompSub.visible = (state.activeCutType === 'complete');
+
+            if (state.activeCutType === 'original') {
+                document.getElementById('btn-separate').classList.add('hidden');
+            } else {
+                document.getElementById('btn-separate').classList.remove('hidden');
+            }
+
+            if (state.isLabelModeActive) {
+                showActiveLabels();
+            } else {
+                hideAllLabels();
+            }
+
+            renderTextLayer();
+        }
+
+        function restartAll() {
+            finishTextEditing();
+            saveStateToHistory();
+            state.activeCutType = 'original';
+            state.textElements = [];
+
+            partOriginalGroup.visible = true;
+            partVertA.visible = false;
+            partVertB.visible = false;
+            partHorizA.visible = false;
+            partHorizB.visible = false;
+            partCompMain.visible = false;
+            partCompSub.visible = false;
+
+            [partVertA, partVertB, partHorizA, partHorizB, partCompMain, partCompSub].forEach(g => {
+                g.position.set(0, 0, 0);
+                g.rotation.set(0, 0, 0);
+            });
+
+            mainPivot.rotation.set(INIT_ROT_X, INIT_ROT_Y, 0);
+            mainPivot.position.set(-23 * SCALE, 3 * SCALE, 0);
+            selectedPartGroup = null;
+
+            document.getElementById('btn-separate').classList.add('hidden');
+            hideAllLabels();
+            clearMemo();
+            renderTextLayer();
+            setMode('cut');
+        }
+
+        function takeScreenshot() {
+            const captureArea = document.getElementById('capture-area');
+            if (!captureArea) return;
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+
+            html2canvas(captureArea, {
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                allowTaint: true,
+                scale: 2
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `L字型の立体の体積_${new Date().toISOString().slice(0,10)}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }).catch(err => {
+                console.error('Screenshot failed:', err);
+            });
+        }
+
+        const penBlack = document.getElementById('pen-black');
+        const penRed = document.getElementById('pen-red');
+        const penBlue = document.getElementById('pen-blue');
+        const penEraser = document.getElementById('pen-eraser');
+
+        function setActivePen(color, isEraser = false) {
+            state.penColor = color;
+            state.isErasing = isEraser;
+            penBlack.classList.toggle('ring-slate-800', color === '#1e293b' && !isEraser);
+            penBlack.classList.toggle('ring-transparent', !(color === '#1e293b' && !isEraser));
+            penRed.classList.toggle('ring-rose-500', color === '#f43f5e' && !isEraser);
+            penRed.classList.toggle('ring-transparent', !(color === '#f43f5e' && !isEraser));
+            penBlue.classList.toggle('ring-blue-500', color === '#3b82f6' && !isEraser);
+            penBlue.classList.toggle('ring-transparent', !(color === '#3b82f6' && !isEraser));
+            penEraser.classList.toggle('bg-slate-300', isEraser);
+        }
+
+        penBlack.addEventListener('click', () => { setActivePen('#1e293b', false); setMode('pen'); });
+        penRed.addEventListener('click', () => { setActivePen('#f43f5e', false); setMode('pen'); });
+        penBlue.addEventListener('click', () => { setActivePen('#3b82f6', false); setMode('pen'); });
+        penEraser.addEventListener('click', () => { setActivePen(state.penColor, true); setMode('pen'); });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+            if (cssRenderer && scene && camera) {
+                cssRenderer.render(scene, camera);
+            }
+        }
+
+        window.onload = function () {
+            initThree();
+            initSwipeCanvas();
+            initMemoCanvas();
+
+            setMode('cut');
+            hideAllLabels();
+            setActivePen('#1e293b', false);
+
+            document.getElementById('btn-reset').onclick = restartAll;
+            document.getElementById('btn-undo').onclick = undoState;
+            document.getElementById('btn-toggle-labels').onclick = toggleLabelMode;
+            document.getElementById('btn-screenshot').onclick = takeScreenshot;
+            document.getElementById('btn-separate').onclick = resetPositions;
+
+            document.getElementById('btn-mode-cut').onclick = () => setMode('cut');
+            document.getElementById('btn-mode-select').onclick = () => setMode('select');
+            document.getElementById('btn-mode-text').onclick = () => setMode('text');
+            document.getElementById('btn-mode-pen').onclick = () => setMode('pen');
+            document.getElementById('btn-clear-memo').onclick = clearMemo;
+
+            animate();
+        };
+    </script>
+</body>
+</html>
